@@ -20,6 +20,6 @@ Users can enter a fund’s **CIK** to view holdings, see total values, percentag
 Clone the repository and install dependencies:
 
 ```bash
-git clone https://github.com/<your-username>/nport-viewer.git
+git clone https://github.com/ChipDale729/nport-viewer.git
 cd nport-viewer
 pip install -r requirements.txt
