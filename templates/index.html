@@ -24,7 +24,7 @@
   </head>
   <body>
     <h1>N-PORT Holdings Viewer</h1>
-    <p class="muted">Enter a fund's CIK to fetch the latest Form N-PORT holdings (Part C) and view them in a sortable table.</p>
+    <p class="muted">Enter a fund's CIK to fetch the latest Form N-PORT holdings (Part C).</p>
 
     <div class="row">
       <input id="cik" placeholder="CIK (e.g., 0000884394 for SPY)" />
@@ -32,14 +32,13 @@
       <span id="status"></span>
     </div>
 
-    <div class="controls">
-      <label>Filter by name: <input id="filter" placeholder="e.g., Treasury" /></label>
+    <div class="chart-wrap">
+      <h3 id="chart-title" style="display:none; margin-top:1.5rem;">Top 30 holdings by value</h3>
+      <canvas id="pie" width="600" height="360" style="display:none;"></canvas>
     </div>
 
-    <!-- Pie chart ABOVE the table -->
-    <div class="chart-wrap">
-      <div class="chart-title">Top holdings by value (with % of total)</div>
-      <canvas id="pie" width="600" height="360" style="display:none;"></canvas>
+    <div class="controls" id="filterBox" style="display:none;">
+      <label>Filter by name: <input id="filter" placeholder="e.g., Inc" /></label>
     </div>
 
     <table id="tbl" hidden>
@@ -47,14 +46,14 @@
         <tr>
           <th data-key="cusip" class="sortable">CUSIP <span class="arrow"></span></th>
           <th data-key="name" class="sortable">Title/Name <span class="arrow"></span></th>
-          <th data-key="balance" class="sortable right">Balance <span class="arrow"></span></th>
-          <th data-key="valueUsd" class="sortable right">Value (USD) <span class="arrow"></span></th>
+          <th data-key="balance" class="sortable">Balance <span class="arrow"></span></th>
+          <th data-key="valueUsd" class="sortable">Value (USD) <span class="arrow"></span></th>
+          <th data-key="percentValue" class="sortable">Percent of Total <span class="arrow"></span></th>
         </tr>
       </thead>
       <tbody></tbody>
       <tfoot>
         <tr>
-          <td colspan="2" class="right"><strong>Totals:</strong></td>
           <td id="total-balance" class="right muted"></td>
           <td id="total-value" class="right muted"></td>
         </tr>

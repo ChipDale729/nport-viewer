@@ -1,24 +1,18 @@
 const $ = (sel) => document.querySelector(sel);
 let current = { holdings: [] };
-let sortKey = 'valueUsd';
-let sortAsc = false; // default: highest value first
+let sortKey = "percentValue";   // default sort: percent total
+let sortAsc = false;            // highest first
 let chart = null;
 
-function setStatus(msg, isError=false){
-  const el = $('#status');
-  el.textContent = msg || '';
-  el.style.color = isError ? '#b00020' : '#444';
+function setStatus(msg, isError = false) {
+  const el = $("#status");
+  el.textContent = msg || "";
+  el.style.color = isError ? "#b00020" : "#444";
 }
 
-function fmtNum(s){
-  if (s == null || s === '') return '';
-  const n = Number(String(s).replace(/[$,\s]/g,''));
-  if (!isFinite(n)) return s;
-  return n.toLocaleString();
-}
-function parseNum(s){
-  const n = Number(String(s||'').replace(/[$,\s]/g,''));
-  return isFinite(n) ? n : 0;
+function parseMoney(s) {
+  if (!s) return 0;
+  return +(String(s).replace(/[$,]/g, "")) || 0;
 }
 
 function updateSortArrows(){
@@ -36,138 +30,190 @@ function updateSortArrows(){
   });
 }
 
-function renderTable(){
-  const tbody = $('#tbl tbody');
-  const filter = ($('#filter').value || '').toLowerCase();
+function renderTable() {
+  const tbody = $("#tbl tbody");
+  const filter = ($("#filter").value || "").toLowerCase();
   let rows = current.holdings || [];
+  if (filter) rows = rows.filter((h) => (h.name || "").toLowerCase().includes(filter));
 
-  // filter
-  if (filter) rows = rows.filter(h => (h.name||'').toLowerCase().includes(filter));
+  const totalValue = rows.reduce((sum, h) => sum + parseMoney(h.valueUsd), 0);
 
-  // sort
-  if (sortKey){
-    rows = rows.slice().sort((a,b)=>{
-      const A = a[sortKey] ?? '';
-      const B = b[sortKey] ?? '';
-      // numeric-aware
-      const na = parseNum(A), nb = parseNum(B);
-      if (!Number.isNaN(na) && !Number.isNaN(nb) && (na !== 0 || nb !== 0 || /\d/.test(A+B))){
-        return sortAsc ? (na - nb) : (nb - na);
+  let enriched = rows
+    .filter(h => !(h.name || "").toLowerCase().startsWith("total"))
+    .map(h => {
+      const valueNum = parseMoney(h.valueUsd);
+      const balanceNum = parseMoney(h.balance);
+      const percentValueNum = totalValue ? (valueNum / totalValue) * 100 : 0;
+      return {
+        ...h,
+        valueNum,
+        balanceNum,
+        percentValueNum,
+        percentValue: totalValue ? percentValueNum.toFixed(2) + "%" : "",
+      };
+    });
+
+  // Sort logic
+  if (sortKey) {
+    enriched = enriched.slice().sort((a, b) => {
+      const aVal = a[sortKey + "Num"] ?? (a[sortKey] || "").toLowerCase();
+      const bVal = b[sortKey + "Num"] ?? (b[sortKey] || "").toLowerCase();
+      if (typeof aVal === "number" && typeof bVal === "number") {
+        return sortAsc ? aVal - bVal : bVal - aVal;
       }
-      return sortAsc ? String(A).localeCompare(String(B)) : String(B).localeCompare(String(A));
+      return sortAsc ? aVal.localeCompare(bVal) : bVal.localeCompare(aVal);
     });
   }
 
-  // totals
-  const totalBalance = rows.reduce((acc,h)=> acc + parseNum(h.balance), 0);
-  const totalValue = rows.reduce((acc,h)=> acc + parseNum(h.valueUsd), 0);
-  $('#total-balance').textContent = fmtNum(totalBalance);
-  $('#total-value').textContent = fmtNum(totalValue);
+  // Totals
+  const totalBalance = enriched.reduce((sum, h) => sum + (h.balanceNum || 0), 0);
+  const totalVal = enriched.reduce((sum, h) => sum + (h.valueNum || 0), 0);
 
-  // rows
-  tbody.innerHTML = rows.map(h=>`
-    <tr>
-      <td>${h.cusip || ''}</td>
-      <td>${h.name || ''}</td>
-      <td class="right">${fmtNum(h.balance)}</td>
-      <td class="right">${fmtNum(h.valueUsd)}</td>
-    </tr>
-  `).join('');
-  $('#tbl').hidden = rows.length === 0;
-  updateSortArrows();
+  // Render table
+  tbody.innerHTML =
+    enriched
+      .map(
+        (h) => `
+      <tr>
+        <td>${h.cusip || ""}</td>
+        <td>${h.name || ""}</td>
+        <td>${h.balance || ""}</td>
+        <td>${h.valueUsd || ""}</td>
+        <td>${h.percentValue || ""}</td>
+      </tr>`
+      )
+      .join("") +
+    (enriched.length > 1
+      ? `
+      <tr style="font-weight:bold; background:#f9f9f9;">
+        <td colspan="2">TOTAL</td>
+        <td>${totalBalance.toLocaleString()}</td>
+        <td>$${totalVal.toLocaleString()}</td>
+        <td>100%</td>
+      </tr>`
+      : "");
+
+  $("#tbl").hidden = enriched.length === 0;
+  $("#filterBox").style.display = enriched.length === 0 ? "none" : "flex";
 }
 
-function renderPie(){
-  try{ if (chart){ chart.destroy(); } } catch{}
-  const el = $('#pie');
+function renderPie() {
+  try {
+    if (chart) chart.destroy();
+  } catch {}
+  const ctx = $("#pie");
+  const titleEl = $("#chart-title");
 
-  // Take top 12 by value
-  const rows = (current.holdings||[]);
-  const total = rows.reduce((acc,h)=> acc + parseNum(h.valueUsd), 0);
-  const top = rows
-    .map(h=>({ name: h.name || 'Unknown', value: parseNum(h.valueUsd) }))
-    .filter(x=>x.value>0)
-    .sort((a,b)=>b.value-a.value)
-    .slice(0,12);
+  const filter = ($("#filter").value || "").toLowerCase();
+  let rows = current.holdings || [];
+  if (filter) rows = rows.filter((h) => (h.name || "").toLowerCase().includes(filter));
 
-  if (top.length === 0){ el.style.display = 'none'; return; }
-  el.style.display = 'block';
+  const items = rows
+    .map((h) => ({
+      name: h.name || "Unknown",
+      value: +(String(h.valueUsd || "").replace(/[$,]/g, "")) || 0,
+    }))
+    .filter((x) => x.value > 0)
+    .sort((a, b) => b.value - a.value);
 
-  const values = top.map(x=>x.value);
-  const labels = top.map(x=>x.name.substring(0,60)); // slightly longer labels
+  if (!items.length) {
+    ctx.style.display = "none";
+    titleEl.style.display = "none";
+    return;
+  }
 
-  // Register plugin (Chart.js v4 requires it passed via options.plugins or registered globally)
-  // Here we configure it per-chart.
-  chart = new Chart(el, {
-    type: 'pie',
-    data: {
-      labels,
-      datasets: [{ data: values }]
-    },
+  const MAX_SLICES = 30;
+  const head = items.slice(0, MAX_SLICES);
+  const othersTotal = items.slice(MAX_SLICES).reduce((sum, x) => sum + x.value, 0);
+
+  const labels = head.map((x) => x.name.substring(0, 40));
+  const data = head.map((x) => x.value);
+  if (othersTotal > 0) {
+    labels.push("Others");
+    data.push(othersTotal);
+  }
+
+  ctx.style.display = "block";
+  titleEl.style.display = "block";
+
+  chart = new Chart(ctx, {
+    type: "pie",
+    data: { labels, datasets: [{ data }] },
     options: {
       plugins: {
-        legend: { position: 'right' },
+        legend: { position: "right" },
         tooltip: {
           callbacks: {
             label: (ctx) => {
-              const v = ctx.parsed || 0;
-              const pct = total ? (v/total*100) : 0;
-              return `${ctx.label}: ${v.toLocaleString()} (${pct.toFixed(1)}%)`;
-            }
-          }
-        },
-        datalabels: {
-          formatter: (v, ctx) => {
-            const pct = total ? (v/total*100) : 0;
-            // Show % only for slices >= 2% to reduce clutter
-            return pct >= 2 ? `${pct.toFixed(1)}%` : '';
+              const total = ctx.dataset.data.reduce((a, b) => a + b, 0);
+              const v = ctx.raw;
+              const pct = total ? ((v / total) * 100).toFixed(1) : "0.0";
+              return `${ctx.label}: ${v.toLocaleString()} (${pct}%)`;
+            },
           },
-          anchor: 'end',
-          align: 'end',
-          clamp: true,
-          offset: 4
-        }
-      }
+        },
+      },
     },
-    plugins: [ChartDataLabels]
   });
 }
 
-async function fetchHoldings(cik){
-  setStatus('Loading…');
-  try{
+async function fetchHoldings(cik) {
+  setStatus("Loading…");
+  try {
     const res = await fetch(`/api/holdings/${encodeURIComponent(cik)}`);
     const data = await res.json();
-    if (!res.ok){ throw new Error(data.error || 'Request failed'); }
+    if (!res.ok) throw new Error(data.error || "Request failed");
     current = data;
-    const when = data.asOf ? ` as of ${data.asOf}` : '';
-    setStatus(`Loaded ${data.count} holdings${when}. Click any column header to sort.`);
-    renderPie();   // draw chart first (now above table)
-    renderTable(); // then render table
-  }catch(err){
+    const when = data.asOf ? ` as of ${data.asOf}` : "";
+    setStatus(`Loaded ${data.count} holdings${when}.`);
+    renderTable();
+    renderPie();
+
+    // Default sort: Percent of Total descending
+    const percentHeader = document.querySelector('th[data-key="percentValue"]');
+    if (percentHeader) {
+      percentHeader.click(); // ascending
+      percentHeader.click(); // descending
+    }
+  } catch (err) {
     setStatus(err.message, true);
     current = { holdings: [] };
-    renderPie();
     renderTable();
+    renderPie();
   }
 }
 
-$('#go').addEventListener('click', ()=>{
-  const cik = $('#cik').value.trim();
-  if (!cik){ setStatus('Enter a CIK.'); return; }
+$("#go").addEventListener("click", () => {
+  const cik = $("#cik").value.trim();
+  if (!cik) {
+    setStatus("Enter a CIK.");
+    return;
+  }
   fetchHoldings(cik);
 });
 
-$('#filter').addEventListener('input', ()=>{
+$("#filter").addEventListener("input", () => {
   renderTable();
-  renderPie(); // keep chart in sync with filter if you want; remove this line to keep chart on full set
+  renderPie();
 });
 
-Array.from(document.querySelectorAll('th.sortable')).forEach(th => {
+Array.from(document.querySelectorAll('th[data-key]')).forEach(th => {
+  th.classList.add('sortable');
+  // Inject arrow span once
+  if (!th.querySelector('.arrow')) {
+    th.insertAdjacentHTML('beforeend', ' <span class="arrow" style="opacity:.5;"></span>');
+  }
+
   th.addEventListener('click', () => {
     const key = th.getAttribute('data-key');
-    if (sortKey === key){ sortAsc = !sortAsc; }
-    else { sortKey = key; sortAsc = (key !== 'valueUsd'); }
+    sortAsc = (sortKey === key) ? !sortAsc : true;
+    sortKey = key;
+
     renderTable();
+    renderPie();
+    updateSortArrows();
   });
 });
+
+
+updateSortArrows();
